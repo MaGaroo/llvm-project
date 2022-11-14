@@ -80,7 +80,7 @@ void ChrootChecker::evalChroot(const CallEvent &Call, CheckerContext &C) const {
   ProgramStateRef state = C.getState();
   ProgramStateManager &Mgr = state->getStateManager();
 
-  // Once encouter a chroot(), set the enum value ROOT_CHANGED directly in
+  // Once encounter a chroot(), set the enum value ROOT_CHANGED directly in
   // the GDM.
   state = Mgr.addGDM(state, ChrootChecker::getTag(), (void*) ROOT_CHANGED);
   C.addTransition(state);
