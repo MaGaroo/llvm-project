@@ -1046,7 +1046,7 @@ ParseResult SplitOp::parse(OpAsmParser &parser, OperationState &result) {
     }
 
     staticSplitPoint =
-        parser.getBuilder().getI64IntegerAttr(ShapedType::kDynamicSize);
+        parser.getBuilder().getI64IntegerAttr(ShapedType::kDynamic);
   }
 
   result.addAttribute(
@@ -1062,7 +1062,7 @@ ParseResult SplitOp::parse(OpAsmParser &parser, OperationState &result) {
 void SplitOp::print(OpAsmPrinter &printer) {
   printer << " " << getTarget() << " after ";
   int64_t staticSplitSize = static_cast<int64_t>(getStaticSplitPoint());
-  if (staticSplitSize != ShapedType::kDynamicSize)
+  if (staticSplitSize != ShapedType::kDynamic)
     printer << staticSplitSize;
   else
     printer << getDynamicSplitPoint();
@@ -1073,7 +1073,7 @@ void SplitOp::print(OpAsmPrinter &printer) {
 
 LogicalResult SplitOp::verify() {
   if ((static_cast<int64_t>(getStaticSplitPoint()) !=
-       ShapedType::kDynamicSize) ^
+       ShapedType::kDynamic) ^
       (getDynamicSplitPoint() == nullptr)) {
     return emitOpError() << "expects either a dynamic or a static split "
                             "point to be provided";
@@ -1159,6 +1159,39 @@ DiagnosedSilenceableFailure transform::TileReductionUsingScfOp::applyToOne(
 
   if (failed(result))
     return DiagnosedSilenceableFailure(reportUnknownTransformError(target));
+  results.push_back(result->initialOp);
+  results.push_back(result->parallelTiledOp);
+  results.push_back(result->mergeOp);
+  return DiagnosedSilenceableFailure(success());
+}
+
+//===----------------------------------------------------------------------===//
+// TileReductionUsingForeachThreadOp
+//===----------------------------------------------------------------------===//
+
+DiagnosedSilenceableFailure
+transform::TileReductionUsingForeachThreadOp::applyToOne(
+    linalg::LinalgOp target, SmallVectorImpl<Operation *> &results,
+    transform::TransformState &state) {
+  SimpleRewriter rewriter(getContext());
+  rewriter.setInsertionPoint(target);
+  SmallVector<int64_t> numThreads = extractFromI64ArrayAttr(getNumThreads());
+  SmallVector<OpFoldResult> numThreadResults;
+  for (int64_t num : numThreads) {
+    numThreadResults.push_back(rewriter.getIndexAttr(num));
+  }
+
+  FailureOr<linalg::ForeachThreadReductionTilingResult> result =
+      linalg::tileReductionUsingForeachThread(
+          rewriter, cast<PartialReductionOpInterface>(target.getOperation()),
+          numThreadResults, /*mapping=*/llvm::None);
+
+  if (failed(result)) {
+    results.assign(3, nullptr);
+    Diagnostic diag(target->getLoc(), DiagnosticSeverity::Remark);
+    diag << "could not tile reduction in target.";
+    return DiagnosedSilenceableFailure::silenceableFailure(std::move(diag));
+  }
   results.push_back(result->initialOp);
   results.push_back(result->parallelTiledOp);
   results.push_back(result->mergeOp);
@@ -1271,7 +1304,7 @@ SmallVector<OpFoldResult> transform::TileOp::getMixedSizes() {
   unsigned dynamicPos = 0;
   Builder builder(getContext());
   for (int64_t size : tileSizes) {
-    if (size == ShapedType::kDynamicSize) {
+    if (size == ShapedType::kDynamic) {
       results.push_back(dynamic[dynamicPos++]);
     } else {
       results.push_back(builder.getIndexAttr(size));
@@ -1289,7 +1322,7 @@ ParseResult transform::TileOp::parse(OpAsmParser &parser,
   if (parser.parseOperand(target) ||
       parser.resolveOperand(target, pdlOperationType, result.operands) ||
       parseDynamicIndexList(parser, dynamicSizes, staticSizes,
-                            ShapedType::kDynamicSize) ||
+                            ShapedType::kDynamic) ||
       parser.resolveOperands(dynamicSizes, pdlOperationType, result.operands) ||
       parser.parseOptionalAttrDict(result.attributes))
     return ParseResult::failure();
@@ -1304,7 +1337,7 @@ ParseResult transform::TileOp::parse(OpAsmParser &parser,
 void TileOp::print(OpAsmPrinter &p) {
   p << ' ' << getTarget();
   printDynamicIndexList(p, getOperation(), getDynamicSizes(), getStaticSizes(),
-                        ShapedType::kDynamicSize);
+                        ShapedType::kDynamic);
   p.printOptionalAttrDict((*this)->getAttrs(), {getStaticSizesAttrName()});
 }
 
@@ -1342,7 +1375,7 @@ void transform::TileToForeachThreadOp::build(
   SmallVector<int64_t> staticTileSizes;
   SmallVector<Value> dynamicTileSizes;
   dispatchIndexOpFoldResults(mixedTileSizes, dynamicTileSizes, staticTileSizes,
-                             ShapedType::kDynamicSize);
+                             ShapedType::kDynamic);
   // Call the default builder which sets up the proper operands segment sizes
   // attributes for multiple variadic operands. In the absence of this, horrible
   // bugs ensue.
@@ -1352,10 +1385,10 @@ void transform::TileToForeachThreadOp::build(
   build(builder, result,
         /*resultTypes=*/TypeRange{operationType, operationType},
         /*target=*/target,
-        /*numThreads=*/ValueRange{},
-        /*tileSizes=*/dynamicTileSizes,
-        /*staticNumThreads=*/builder.getI64ArrayAttr({}),
-        /*staticTileSizes=*/staticTileSizesAttr,
+        /*num_threads=*/ValueRange{},
+        /*tile_sizes=*/dynamicTileSizes,
+        /*static_num_threads=*/builder.getI64ArrayAttr({}),
+        /*static_tile_sizes=*/staticTileSizesAttr,
         /*mapping=*/mapping);
 }
 
@@ -1377,7 +1410,7 @@ void transform::TileToForeachThreadOp::build(
   SmallVector<int64_t> staticNumThreads;
   SmallVector<Value> dynamicNumThreads;
   dispatchIndexOpFoldResults(mixedNumThreads, dynamicNumThreads,
-                             staticNumThreads, ShapedType::kDynamicSize);
+                             staticNumThreads, ShapedType::kDynamic);
   // Call the default builder which sets up the proper operands segment sizes
   // attributes for multiple variadic operands. In the absence of this, horrible
   // bugs ensue.
@@ -1387,10 +1420,10 @@ void transform::TileToForeachThreadOp::build(
   build(builder, result,
         /*resultTypes=*/TypeRange{operationType, operationType},
         /*target=*/target,
-        /*numThreads=*/dynamicNumThreads,
-        /*tileSizes=*/ValueRange{},
-        /*staticNumThreads=*/staticNumThreadsAttr,
-        /*staticTileSizes=*/builder.getI64ArrayAttr({}),
+        /*num_threads=*/dynamicNumThreads,
+        /*tile_sizes=*/ValueRange{},
+        /*static_num_threads=*/staticNumThreadsAttr,
+        /*static_tile_sizes=*/builder.getI64ArrayAttr({}),
         /*mapping=*/mapping);
 }
 
@@ -1424,7 +1457,7 @@ static DiagnosedSilenceableFailure unpackPDLOperations(
   }
 
   return DiagnosedSilenceableFailure(success());
-};
+}
 
 DiagnosedSilenceableFailure transform::tileToForeachThreadOpImpl(
     RewriterBase &rewriter, transform::TransformState &state,
@@ -1630,7 +1663,7 @@ SmallVector<OpFoldResult> transform::TileToScfForOp::getMixedSizes() {
   unsigned dynamicPos = 0;
   Builder builder(getContext());
   for (int64_t size : tileSizes) {
-    if (size == ShapedType::kDynamicSize) {
+    if (size == ShapedType::kDynamic) {
       results.push_back(dynamic[dynamicPos++]);
     } else {
       results.push_back(builder.getIndexAttr(size));
@@ -1648,7 +1681,7 @@ ParseResult transform::TileToScfForOp::parse(OpAsmParser &parser,
   if (parser.parseOperand(target) ||
       parser.resolveOperand(target, pdlOperationType, result.operands) ||
       parseDynamicIndexList(parser, dynamicSizes, staticSizes,
-                            ShapedType::kDynamicSize) ||
+                            ShapedType::kDynamic) ||
       parser.resolveOperands(dynamicSizes, pdlOperationType, result.operands) ||
       parser.parseOptionalAttrDict(result.attributes))
     return ParseResult::failure();
@@ -1663,7 +1696,7 @@ ParseResult transform::TileToScfForOp::parse(OpAsmParser &parser,
 void TileToScfForOp::print(OpAsmPrinter &p) {
   p << ' ' << getTarget();
   printDynamicIndexList(p, getOperation(), getDynamicSizes(), getStaticSizes(),
-                        ShapedType::kDynamicSize);
+                        ShapedType::kDynamic);
   p.printOptionalAttrDict((*this)->getAttrs(), {getStaticSizesAttrName()});
 }
 

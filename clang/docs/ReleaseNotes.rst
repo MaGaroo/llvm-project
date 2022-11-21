@@ -388,6 +388,13 @@ Improvements to Clang's diagnostics
 - Clang now diagnoses use of invalid or reserved module names in a module
   export declaration. Both are diagnosed as an error, but the diagnostic is
   suppressed for use of reserved names in a system header.
+- ``-Winteger-overflow`` will diagnose overflow in more cases. This fixes
+  `Issue 58944 <https://github.com/llvm/llvm-project/issues/58944>`_.
+- Clang has an internal limit of 2GB of preprocessed source code per
+  compilation, including source reachable through imported AST files such as
+  PCH or modules. When Clang hits this limit, it now produces notes mentioning
+  which header and source files are consuming large amounts of this space.
+  ``#pragma clang __debug sloc_usage`` can also be used to request this report.
 
 Non-comprehensive list of changes in this release
 -------------------------------------------------
@@ -478,6 +485,8 @@ Modified Compiler Flags
 
 Removed Compiler Flags
 -------------------------
+- Clang now no longer supports ``-cc1 -fconcepts-ts``.  This flag has been deprecated
+  and encouraged use of ``-std=c++20`` since Clang 10, so we're now removing it.
 
 New Pragmas in Clang
 --------------------
@@ -511,6 +520,8 @@ Windows Support
   ``-mguard=cf-nochecks`` (equivalent to ``/guard:cf-``, ``/guard:cf`` and
   ``/guard:cf,nochecks`` in clang-cl) for enabling Control Flow Guard checks
   and generation of address-taken function table.
+
+- Switched from SHA1 to BLAKE3 for PDB type hashing / ``-gcodeview-ghash``
 
 AIX Support
 -----------
@@ -754,6 +765,9 @@ Arm and AArch64 Support in Clang
   * Arm Cortex-A715 (cortex-a715).
   * Arm Cortex-X3 (cortex-x3).
   * Arm Neoverse V2 (neoverse-v2)
+- Strict floating point has been enabled for AArch64, which means that
+  ``-ftrapping-math``, ``-frounding-math``, ``-ffp-model=strict``, and
+  ``-ffp-exception-behaviour=<arg>`` are now accepted.
 
 Floating Point Support in Clang
 -------------------------------

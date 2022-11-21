@@ -14,6 +14,8 @@
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/SetVector.h"
 
+#include "mlir/Dialect/Bufferization/IR/BufferizationEnums.h.inc"
+
 namespace mlir {
 class OpBuilder;
 
@@ -185,13 +187,7 @@ struct BufferizationOptions {
   /// Tensor -> MemRef type converter.
   /// Parameters: Value, memory space, bufferization options
   using UnknownTypeConverterFn = std::function<BaseMemRefType(
-      Value, unsigned, const BufferizationOptions &)>;
-
-  enum class LayoutMapOption : int8_t {
-    InferLayoutMap = 0,
-    IdentityLayoutMap = 1,
-    FullyDynamicLayoutMap = 2
-  };
+      Value, Attribute memorySpace, const BufferizationOptions &)>;
 
   BufferizationOptions();
 
@@ -238,9 +234,9 @@ struct BufferizationOptions {
   bool bufferizeFunctionBoundaries = false;
 
   /// The default memory space that should be used when it cannot be inferred
-  /// from the context. If no default memory space is specified, bufferization
-  /// fails when the memory space cannot be inferred at any point.
-  Optional<unsigned> defaultMemorySpace = 0;
+  /// from the context. If case of llvm::None, bufferization fails when the
+  /// memory space cannot be inferred at any point.
+  Optional<Attribute> defaultMemorySpace = Attribute();
 
   /// Certain ops have aliasing OpOperand/OpResult invariants (e.g., scf.for).
   /// If this flag is set to `false`, those invariants are no longer enforced
@@ -551,17 +547,19 @@ bool shouldDeallocateOpResult(OpResult opResult,
 /// canonicalizations are currently not implemented.
 BaseMemRefType getMemRefType(Value value, const BufferizationOptions &options,
                              MemRefLayoutAttrInterface layout = {},
-                             unsigned memorySpace = 0);
+                             Attribute memorySpace = nullptr);
 
 /// Return a MemRef type with fully dynamic layout. If the given tensor type
 /// is unranked, return an unranked MemRef type.
-BaseMemRefType getMemRefTypeWithFullyDynamicLayout(TensorType tensorType,
-                                                   unsigned memorySpace = 0);
+BaseMemRefType
+getMemRefTypeWithFullyDynamicLayout(TensorType tensorType,
+                                    Attribute memorySpace = nullptr);
 
 /// Return a MemRef type with a static identity layout (i.e., no layout map). If
 /// the given tensor type is unranked, return an unranked MemRef type.
-BaseMemRefType getMemRefTypeWithStaticIdentityLayout(TensorType tensorType,
-                                                     unsigned memorySpace = 0);
+BaseMemRefType
+getMemRefTypeWithStaticIdentityLayout(TensorType tensorType,
+                                      Attribute memorySpace = nullptr);
 
 /// Return the owner of the given value. In case of a BlockArgument that is the
 /// owner of the block. In case of an OpResult that is the defining op.
@@ -584,6 +582,10 @@ bool defaultIsRepetitiveRegion(BufferizableOpInterface bufferizableOp,
 
 } // namespace bufferization
 } // namespace mlir
+
+//===----------------------------------------------------------------------===//
+// Bufferization Interfaces
+//===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h.inc"
 

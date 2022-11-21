@@ -913,6 +913,23 @@ def MemRef_ExtractStridedMetadataOp : MemRef_Op<"extract_strided_metadata", [
     $source `:` type($source) `->` type(results) attr-dict
   }];
 
+  let extraClassDeclaration = [{
+    /// Return a vector of all the static or dynamic sizes of the op, while
+    /// statically inferring the sizes of the dynamic sizes, when possible.
+    /// This is best effort.
+    /// E.g., if `getSizes` returns `[%dyn_size0, %dyn_size1]`, but the
+    /// source memref type is `memref<2x8xi16>`, this method will
+    /// return `[2, 8]`.
+    /// Similarly if the resulting memref type is `memref<2x?xi16>`, but
+    /// `%dyn_size1` can statically be pinned to a constant value, this
+    /// constant value is returned instead of `%dyn_size`.
+    SmallVector<OpFoldResult> getConstifiedMixedSizes();
+    /// Similar to `getConstifiedMixedSizes` but for strides.
+    SmallVector<OpFoldResult> getConstifiedMixedStrides();
+    /// Similar to `getConstifiedMixedSizes` but for the offset.
+    OpFoldResult getConstifiedMixedOffset();
+  }];
+
   let hasFolder = 1;
 }
 
@@ -1251,13 +1268,13 @@ def MemRef_ReinterpretCastOp
   let assemblyFormat = [{
     $source `to` `offset` `` `:`
     custom<DynamicIndexList>($offsets, $static_offsets,
-                               "ShapedType::kDynamicStrideOrOffset")
+                               "ShapedType::kDynamic")
     `` `,` `sizes` `` `:`
     custom<DynamicIndexList>($sizes, $static_sizes,
-                               "ShapedType::kDynamicSize")
+                               "ShapedType::kDynamic")
     `` `,` `strides` `` `:`
     custom<DynamicIndexList>($strides, $static_strides,
-                               "ShapedType::kDynamicStrideOrOffset")
+                               "ShapedType::kDynamic")
     attr-dict `:` type($source) `to` type($result)
   }];
 
@@ -1301,6 +1318,20 @@ def MemRef_ReinterpretCastOp
     /// Return the number of leading operands before the `offsets`, `sizes` and
     /// and `strides` operands.
     static unsigned getOffsetSizeAndStrideStartOperandIndex() { return 1; }
+
+    /// Return a vector of all the static or dynamic sizes of the op, while
+    /// statically inferring the sizes of the dynamic sizes, when possible.
+    /// This is best effort.
+    /// E.g., if `getMixedSizes` returns `[2, %dyn_size]`, but the resulting
+    /// memref type is `memref<2x8xi16>`, this method will return `[2, 8]`.
+    /// Similarly if the resulting memref type is `memref<2x?xi16>`, but
+    /// `%dyn_size` can statically be pinned to a constant value, this
+    /// constant value is returned instead of `%dyn_size`.
+    SmallVector<OpFoldResult> getConstifiedMixedSizes();
+    /// Similar to `getConstifiedMixedSizes` but for strides.
+    SmallVector<OpFoldResult> getConstifiedMixedStrides();
+    /// Similar to `getConstifiedMixedSizes` but for the offset.
+    OpFoldResult getConstifiedMixedOffset();
   }];
 
   let hasFolder = 1;
@@ -1708,8 +1739,8 @@ def SubViewOp : MemRef_OpWithOffsetSizesAndStrides<"subview", [
     The representation based on offsets, sizes and strides support a
     partially-static specification via attributes specified through the
     `static_offsets`, `static_sizes` and `static_strides` arguments. A special
-    sentinel value ShapedType::kDynamicSize and
-    ShapedType::kDynamicStrideOrOffset encodes that the corresponding entry has
+    sentinel value ShapedType::kDynamic and
+    ShapedType::kDynamic encodes that the corresponding entry has
     a dynamic value.
 
     A subview operation may additionally reduce the rank of the resulting view
@@ -1835,11 +1866,11 @@ def SubViewOp : MemRef_OpWithOffsetSizesAndStrides<"subview", [
   let assemblyFormat = [{
     $source ``
     custom<DynamicIndexList>($offsets, $static_offsets,
-                               "ShapedType::kDynamicStrideOrOffset")
+                               "ShapedType::kDynamic")
     custom<DynamicIndexList>($sizes, $static_sizes,
-                               "ShapedType::kDynamicSize")
+                               "ShapedType::kDynamic")
     custom<DynamicIndexList>($strides, $static_strides,
-                               "ShapedType::kDynamicStrideOrOffset")
+                               "ShapedType::kDynamic")
     attr-dict `:` type($source) `to` type($result)
   }];
 

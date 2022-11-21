@@ -1706,7 +1706,7 @@ struct RemoveOutsDependency : public OpRewritePattern<GenericOp> {
         modifiedOutput = true;
         SmallVector<Value> dynamicDims;
         for (const auto &dim : llvm::enumerate(operandType.getShape())) {
-          if (dim.value() != ShapedType::kDynamicSize)
+          if (dim.value() != ShapedType::kDynamic)
             continue;
           dynamicDims.push_back(rewriter.createOrFold<tensor::DimOp>(
               loc, operandVal, dim.index()));
@@ -1780,6 +1780,8 @@ void mlir::linalg::populateElementwiseOpsFusionPatterns(
   patterns.add<FuseElementwiseOps>(context, controlElementwiseOpsFusion);
   patterns.add<FoldFillWithGenericOp, FoldScalarOrSplatConstant,
                RemoveOutsDependency>(context);
+  // Add the patterns that clean up dead operands and results.
+  populateEraseUnusedOperandsAndResultsPatterns(patterns);
 }
 
 void mlir::linalg::populateCollapseDimensions(
