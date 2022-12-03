@@ -523,7 +523,7 @@ LoopNest mlir::scf::buildLoopNest(
     assert(results.size() == iterArgs.size() &&
            "loop nest body must return as many values as loop has iteration "
            "arguments");
-    return LoopNest();
+    return LoopNest{{}, std::move(results)};
   }
 
   // First, create the loop structure iteratively using the body-builder
@@ -573,9 +573,9 @@ LoopNest mlir::scf::buildLoopNest(
   builder.create<scf::YieldOp>(loc, results);
 
   // Return the loops.
-  LoopNest res;
-  res.loops.assign(loops.begin(), loops.end());
-  return res;
+  ValueVector nestResults;
+  llvm::copy(loops.front().getResults(), std::back_inserter(nestResults));
+  return LoopNest{std::move(loops), std::move(nestResults)};
 }
 
 LoopNest mlir::scf::buildLoopNest(
@@ -1321,6 +1321,31 @@ ForeachThreadOp mlir::scf::getForeachThreadOpThreadIndexOwner(Value val) {
   assert(tidxArg.getOwner() && "unlinked block argument");
   auto *containingOp = tidxArg.getOwner()->getParentOp();
   return dyn_cast<ForeachThreadOp>(containingOp);
+}
+
+namespace {
+/// Fold tensor.dim(foreach_thread shared_outs(... = %t)) to tensor.dim(%t).
+struct DimOfForeachThreadOp : public OpRewritePattern<tensor::DimOp> {
+  using OpRewritePattern<tensor::DimOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(tensor::DimOp dimOp,
+                                PatternRewriter &rewriter) const final {
+    auto foreachThreadOp = dimOp.getSource().getDefiningOp<ForeachThreadOp>();
+    if (!foreachThreadOp)
+      return failure();
+    Value sharedOut =
+        foreachThreadOp.getTiedOpOperand(dimOp.getSource().cast<OpResult>())
+            ->get();
+    rewriter.updateRootInPlace(
+        dimOp, [&]() { dimOp.getSourceMutable().assign(sharedOut); });
+    return success();
+  }
+};
+} // namespace
+
+void ForeachThreadOp::getCanonicalizationPatterns(RewritePatternSet &results,
+                                                  MLIRContext *context) {
+  results.add<DimOfForeachThreadOp>(context);
 }
 
 //===----------------------------------------------------------------------===//

@@ -22,6 +22,7 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SparseTensor/IR/SparseTensor.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/AffineExprVisitor.h"
@@ -1392,7 +1393,7 @@ void TransposeOp::print(OpAsmPrinter &p) {
 LogicalResult TransposeOp::verify() {
   ArrayRef<int64_t> permutationRef = getPermutation();
 
-  if (!isPermutation(permutationRef))
+  if (!isPermutationVector(permutationRef))
     return emitOpError("permutation is not valid");
 
   auto inputType = getInput().getType();
@@ -1683,19 +1684,6 @@ SmallVector<AffineExpr, 4> mlir::linalg::concat(ArrayRef<AffineExpr> a,
   return llvm::to_vector<4>(concatRanges);
 }
 
-bool mlir::linalg::isPermutation(ArrayRef<int64_t> permutation) {
-  // Count the number of appearances for all indices.
-  SmallVector<int64_t> indexCounts(permutation.size(), 0);
-  for (auto index : permutation) {
-    // Exit if the index is out-of-range.
-    if (index < 0 || index >= static_cast<int64_t>(permutation.size()))
-      return false;
-    ++indexCounts[index];
-  }
-  // Return true if all indices appear once.
-  return count(indexCounts, 1) == static_cast<int64_t>(permutation.size());
-}
-
 static void appendMangledType(llvm::raw_string_ostream &ss, Type t) {
   if (auto memref = t.dyn_cast<MemRefType>()) {
     ss << "view";
@@ -1793,8 +1781,7 @@ struct FoldTensorCastProducerOp : public OpInterfaceRewritePattern<LinalgOp> {
         newResultTypes.push_back(newOperands.back().getType());
     }
     // Clone op.
-    Operation *newOp =
-        op.clone(rewriter, op->getLoc(), newResultTypes, newOperands);
+    Operation *newOp = clone(rewriter, op, newResultTypes, newOperands);
     SmallVector<Value, 4> replacements;
     replacements.reserve(newOp->getNumResults());
     for (auto result : llvm::zip(op->getResults(), newOp->getResults())) {
@@ -1856,7 +1843,7 @@ struct FoldTensorCastConsumerOp : public OpRewritePattern<tensor::CastOp> {
     SmallVector<Type> resultTypes(linalgOp->result_type_begin(),
                                   linalgOp->result_type_end());
     resultTypes[resultNumber] = resultType;
-    Operation *newOp = linalgOp.clone(rewriter, loc, resultTypes, newOperands);
+    Operation *newOp = clone(rewriter, linalgOp, resultTypes, newOperands);
 
     // Create a tensor.cast operation back to the original type.
     Value castBack = rewriter.create<tensor::CastOp>(
@@ -2006,8 +1993,7 @@ struct InferStaticShapeOfOperands : public OpInterfaceRewritePattern<LinalgOp> {
       return failure();
 
     // Clone op.
-    Operation *newOp =
-        linalgOp.clone(rewriter, linalgOp->getLoc(), resultTypes, newOperands);
+    Operation *newOp = clone(rewriter, linalgOp, resultTypes, newOperands);
     SmallVector<Value> replacements;
     replacements.reserve(newOp->getNumResults());
     for (auto it : llvm::zip(linalgOp->getResults(), newOp->getResults())) {

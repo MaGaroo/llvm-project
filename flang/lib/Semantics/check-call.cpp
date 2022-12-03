@@ -391,22 +391,25 @@ static void CheckExplicitDataArg(const characteristics::DummyDataObject &dummy,
   }
 
   // Definability
-  const char *reason{nullptr};
-  if (dummy.intent == common::Intent::Out) {
-    reason = "INTENT(OUT)";
-  } else if (dummy.intent == common::Intent::InOut) {
-    reason = "INTENT(IN OUT)";
-  }
-  if (reason && scope) {
-    DefinabilityFlags flags;
-    if (isElemental || dummyIsValue) { // 15.5.2.4(21)
-      flags.set(DefinabilityFlag::VectorSubscriptIsOk);
+  if (scope) {
+    const char *reason{nullptr};
+    // Problems with polymorphism are caught in the callee's definition.
+    DefinabilityFlags flags{DefinabilityFlag::PolymorphicOkInPure};
+    if (dummy.intent == common::Intent::Out) {
+      reason = "INTENT(OUT)";
+    } else if (dummy.intent == common::Intent::InOut) {
+      reason = "INTENT(IN OUT)";
     }
-    if (auto whyNot{WhyNotDefinable(messages.at(), *scope, flags, actual)}) {
-      if (auto *msg{messages.Say(
-              "Actual argument associated with %s %s is not definable"_err_en_US,
-              reason, dummyName)}) {
-        msg->Attach(std::move(*whyNot));
+    if (reason) {
+      if (isElemental || dummyIsValue) { // 15.5.2.4(21)
+        flags.set(DefinabilityFlag::VectorSubscriptIsOk);
+      }
+      if (auto whyNot{WhyNotDefinable(messages.at(), *scope, flags, actual)}) {
+        if (auto *msg{messages.Say(
+                "Actual argument associated with %s %s is not definable"_err_en_US,
+                reason, dummyName)}) {
+          msg->Attach(std::move(*whyNot));
+        }
       }
     }
   }
@@ -596,6 +599,10 @@ static void CheckProcedureArg(evaluate::ActualArgument &arg,
               argProcSymbol->name());
           return;
         }
+      } else if (argProcSymbol->has<ProcBindingDetails>()) {
+        evaluate::SayWithDeclaration(messages, *argProcSymbol,
+            "Procedure binding '%s' passed as an actual argument"_port_en_US,
+            argProcSymbol->name());
       }
     }
     if (auto argChars{characteristics::DummyArgument::FromActual(
@@ -960,7 +967,7 @@ bool CheckInterfaceForGeneric(const characteristics::Procedure &proc,
            .AnyFatalError();
 }
 
-void CheckArguments(const characteristics::Procedure &proc,
+bool CheckArguments(const characteristics::Procedure &proc,
     evaluate::ActualArguments &actuals, evaluate::FoldingContext &context,
     const Scope &scope, bool treatingExternalAsImplicit,
     const evaluate::SpecificIntrinsic *intrinsic) {
@@ -980,21 +987,25 @@ void CheckArguments(const characteristics::Procedure &proc,
       if (auto *msgs{messages.messages()}) {
         msgs->Annex(std::move(buffer));
       }
-      return; // don't pile on
+      return false; // don't pile on
     }
   }
   if (explicitInterface) {
     auto buffer{
         CheckExplicitInterface(proc, actuals, context, scope, intrinsic)};
-    if (treatingExternalAsImplicit && !buffer.empty()) {
-      if (auto *msg{messages.Say(
-              "If the procedure's interface were explicit, this reference would be in error"_warn_en_US)}) {
-        buffer.AttachTo(*msg, parser::Severity::Because);
+    if (!buffer.empty()) {
+      if (treatingExternalAsImplicit && !buffer.empty()) {
+        if (auto *msg{messages.Say(
+                "If the procedure's interface were explicit, this reference would be in error"_warn_en_US)}) {
+          buffer.AttachTo(*msg, parser::Severity::Because);
+        }
       }
-    }
-    if (auto *msgs{messages.messages()}) {
-      msgs->Annex(std::move(buffer));
+      if (auto *msgs{messages.messages()}) {
+        msgs->Annex(std::move(buffer));
+      }
+      return false;
     }
   }
+  return true;
 }
 } // namespace Fortran::semantics

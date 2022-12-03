@@ -671,7 +671,7 @@ tileLinalgOpImpl(RewriterBase &b, LinalgOp op, ArrayRef<OpFoldResult> tileSizes,
 
     SmallVector<Type> resultTensorTypes =
         getTensorOutputTypes(op, tiledOperands);
-    res = op.clone(b, loc, resultTensorTypes, tiledOperands);
+    res = clone(b, op, resultTensorTypes, tiledOperands);
     tensorResults =
         insertSlicesBack(builder, loc, op, tiledOperands, res->getResults());
     return scf::ValueVector(tensorResults.begin(), tensorResults.end());
@@ -821,7 +821,7 @@ struct PadOpTilingPattern : public OpRewritePattern<tensor::PadOp> {
     if (failed(tilePadOp(rewriter, op, newPadOp, loopNest, options)))
       return failure();
     // Replace all uses of the original tensor::PadOp.
-    rewriter.replaceOp(op, loopNest.getResults()[0]);
+    rewriter.replaceOp(op, loopNest.results.front());
     return success();
   }
 

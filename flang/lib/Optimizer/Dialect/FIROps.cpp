@@ -2302,7 +2302,7 @@ mlir::LogicalResult fir::ReboxOp::verify() {
     // the types is a character with dynamic length, the other type can be any
     // character type.
     const bool typeCanMismatch =
-        inputEleTy.isa<fir::RecordType>() ||
+        inputEleTy.isa<fir::RecordType>() || outEleTy.isa<mlir::NoneType>() ||
         (getSlice() && inputEleTy.isa<fir::CharacterType>()) ||
         areCompatibleCharacterTypes(inputEleTy, outEleTy);
     if (!typeCanMismatch)
@@ -3353,7 +3353,7 @@ mlir::LogicalResult fir::UnboxProcOp::verify() {
 
 void fir::IfOp::build(mlir::OpBuilder &builder, mlir::OperationState &result,
                       mlir::Value cond, bool withElseRegion) {
-  build(builder, result, llvm::None, cond, withElseRegion);
+  build(builder, result, std::nullopt, cond, withElseRegion);
 }
 
 void fir::IfOp::build(mlir::OpBuilder &builder, mlir::OperationState &result,
