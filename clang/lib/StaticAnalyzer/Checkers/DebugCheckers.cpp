@@ -317,6 +317,87 @@ bool ento::shouldRegisterExplodedGraphViewer(const CheckerManager &mgr) {
 }
 
 //===----------------------------------------------------------------------===//
+// ConstraintExtractor
+//===----------------------------------------------------------------------===//
+
+#include <iostream>
+using namespace std;
+
+namespace {
+class ConstraintExtractor : public Checker< check::EndAnalysis > {
+public:
+  unsigned int BlockID;
+
+  ConstraintExtractor() {}
+
+  void checkEndAnalysis(ExplodedGraph &G, BugReporter &B, ExprEngine &Eng) const {
+    map<int64_t, map<int64_t, ProgramStateRef>> Constraints;
+    for (ExplodedGraph::node_iterator I = G.nodes_begin(); I != G.nodes_end(); I++) {
+      const ProgramPoint &PP = I->getLocation();
+      if (PP.getKind() != ProgramPoint::BlockEdgeKind)
+        continue;
+      auto Edge = PP.castAs<BlockEdge>();
+      if (Edge.getSrc()->getBlockID() != BlockID)
+        continue;
+
+      // Additional Checks
+      // First, we check the preds size to not be more than 1
+      if (I->pred_size() > 1) {
+        cerr << "WARNING: check #1 failed at node " << I->getID() << '\n';
+        return;
+      }
+      if (I->pred_size() == 0)
+        return;
+
+      // Second, we check the previous node to be post-statement
+      // !!! This assumption is false, so its code is commented out !!!
+      auto PredI = *I->pred_begin();
+      /// if (PredI->getLocation().getKind() != ProgramPoint::PostStmtKind) {
+      ///   cerr << "WARNING: check #2 failed at node " << I->getID() << '\n';
+      ///   return;
+      /// }
+
+      // Third, we check PredI to have another predecessor
+      if (PredI->pred_size() != 1) {
+        cerr << "WARNING: check #3 failed at node " << I->getID() << '\n';
+        return;
+      }
+
+      // Finally, we use the predecessor of PredI as the map's key
+      auto PredPredI = *PredI->pred_begin();
+      Constraints[PredPredI->getID()][Edge.getDst()->getBlockID()] = I->getState();
+
+      // TODO
+      // PROBLEM: how to find the exploded node before traversing the edge?
+      // CURRENT SOLUTION: we use pred of pred of I, but it may be wrong
+    }
+
+    // Print the results
+    for (auto const& [NodeId, Outgoing] : Constraints) {
+      llvm::outs() << "Exploded Node ID: " << NodeId << "\n";
+      for (auto const& [DestId, State] : Outgoing) {
+        auto &CM = State->getConstraintManager();
+        llvm::outs() << "    " << "From CFG Block " << BlockID << " to " << DestId << ":\n";
+        CM.printJson(llvm::outs(), State, "\n", 4, false);
+      }
+      llvm::outs() << "=================\n";
+    }
+  }
+};
+
+}
+
+void ento::registerConstraintExtractor(CheckerManager &mgr) {
+  auto *Checker = mgr.registerChecker<ConstraintExtractor>();
+  Checker->BlockID = mgr.getAnalyzerOptions().getCheckerIntegerOption(
+      Checker, "BlockID");
+}
+
+bool ento::shouldRegisterConstraintExtractor(const CheckerManager &mgr) {
+  return true;
+}
+
+//===----------------------------------------------------------------------===//
 // Emits a report for every Stmt that the analyzer visits.
 //===----------------------------------------------------------------------===//
 

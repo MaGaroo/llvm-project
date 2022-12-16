@@ -1601,6 +1601,17 @@ def ExplodedGraphViewer : Checker<"ViewExplodedGraph">,
   HelpText<"View Exploded Graphs using GraphViz">,
   Documentation<NotDocumented>;
 
+def ConstraintExtractor : Checker<"ConstraintExtractor">,
+  CheckerOptions<[
+    CmdLineOption<Integer,
+                  "BlockID",
+                  "Specify the block ID",
+                  "0",
+                  Released>
+  ]>,
+  HelpText<"Extract the constraints of a CFG block exit points">,
+  Documentation<NotDocumented>;
+
 def ReportStmts : Checker<"ReportStmts">,
   HelpText<"Emits a warning for every statement.">,
   Documentation<NotDocumented>;
